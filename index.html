@@ -227,7 +227,8 @@
         let crewState = {
             reloading: false,
             spotted: false,
-            hitTimer: 0
+            hitTimer: 0,
+            killTimer: 0
         };
 
         // --- COLLISION SYSTEM ---
@@ -808,6 +809,13 @@
             const el = document.getElementById('crew-status');
             const now = Date.now();
             
+            // Priority: Kill > Hit > Reload > Spotted > Loaded
+            if (now - crewState.killTimer < 2000) {
+                el.innerText = "TARGET DESTROYED!"; 
+                el.style.color = "#ff0000"; 
+                return;
+            }
+
             if (now - crewState.hitTimer < 1500) {
                 el.innerText = "HIT!"; el.style.color = "#ff3333"; return;
             }
@@ -1109,6 +1117,7 @@
             if (tickets.ally <= 0) gameOver("DEFEAT", "Our reinforcements are depleted.");
             if (tickets.enemy <= 0) gameOver("VICTORY", "Enemy forces are retreating.");
 
+            // 5. BULLETS & COLLISION
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.position.add(b.velocity);
@@ -1120,6 +1129,7 @@
                 let hit = false;
                 const hitRadius = 5.0; 
 
+                // Player Hit Check
                 if (b.userData.owner !== 'player' && b.position.distanceTo(player.position) < hitRadius) {
                      if (player.userData.hp > 0) {
                         player.userData.hp -= b.userData.dmg;
@@ -1130,6 +1140,7 @@
                     }
                 }
 
+                // AI Hit Check
                 if (!hit) {
                     const targets = b.userData.owner === 'player' ? enemies : [...allies];
                     for (let t of targets) {
@@ -1143,6 +1154,11 @@
                                 t.visible = false; 
                                 if (t.userData.team === 'enemy') tickets.enemy -= 50;
                                 else tickets.ally -= 50;
+                                
+                                // Player Kill Confirmation
+                                if (b.userData.owner === 'player') {
+                                    crewState.killTimer = Date.now();
+                                }
                             }
                             break;
                         }
