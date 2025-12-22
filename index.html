@@ -254,7 +254,8 @@
         function findSafePosition(minX, maxX, minZ, maxZ) {
             let x, z;
             let attempts = 0;
-            while (attempts < 50) {
+            // Try up to 100 times to find a free spot
+            while (attempts < 100) {
                 x = minX + Math.random() * (maxX - minX);
                 z = minZ + Math.random() * (maxZ - minZ);
                 if (!checkCollision(x, z)) {
@@ -262,7 +263,8 @@
                 }
                 attempts++;
             }
-            return { x: (minX + maxX)/2, z: (minZ + maxZ)/2 };
+            // Fallback: return origin (0,0) which is guaranteed cleared in createCityLayout
+            return { x: 0, z: 0 };
         }
 
         // --- MAP GENERATION ---
@@ -458,9 +460,14 @@
             for(let x = -200; x <= 200; x += 40) {
                 for(let z = -200; z <= 200; z += 40) {
                     let clear = false;
-                    if (Math.abs(x) < 40 && Math.abs(z) < 40) clear = true;
-                    if (Math.abs(x - (-140)) < 40 && Math.abs(z - (-140)) < 40) clear = true;
-                    if (Math.abs(x - 140) < 40 && Math.abs(z - 140) < 40) clear = true;
+                    // Home Base & Player Spawn (Covers B, Allies, and Player at Z=80)
+                    if (Math.abs(x) < 60 && z > -50 && z < 150) clear = true;
+                    // Area A
+                    if (Math.abs(x - (-140)) < 60 && Math.abs(z - (-140)) < 60) clear = true;
+                    // Area C
+                    if (Math.abs(x - 140) < 60 && Math.abs(z - 140) < 60) clear = true;
+                    // Enemy Spawn Area
+                    if (Math.abs(x) < 180 && z < -140 && z > -280) clear = true;
                     
                     if (clear) continue;
                     
