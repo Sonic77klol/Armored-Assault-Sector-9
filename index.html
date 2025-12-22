@@ -185,7 +185,7 @@
             capRadius: 30,
             capTimeSeconds: 60,
             ticketDrainRate: 0.3,
-            tankCollisionRadius: 3.5 // Increased to ensure hull corners don't clip buildings at spawn
+            tankCollisionRadius: 3.5 
         };
 
         // --- GLOBALS ---
@@ -196,34 +196,29 @@
         let bullets = [];
         let particles = [];
         let mapObjects = [];
-        let colliders = []; // Array of {type: 'box'|'radius', ...}
+        let colliders = []; 
         let activeNametags = [];
         let terrainMesh;
         let capZones = [];
         let gameActive = false;
         let currentMapType = '';
         
-        // Lighting & Thermal State
         let lightSource, ambientLight;
         let isThermalMode = false;
         let baseFogDensity = 0.005;
         let baseFogColor = 0x8899aa;
         
-        // Game State
         let tickets = { ally: 1000, enemy: 1000 };
         
-        // Input
         const keys = { w: false, a: false, s: false, d: false, c: false, shift: false };
         let currentYaw = 0;
         let currentPitch = 0;
         
-        // Camera & Aiming
         let freeLookYaw = 0;
         let freeLookPitch = 0;
         let isSniperMode = false;
         let lastShotTime = 0;
         
-        // Crew Status State
         let crewState = {
             reloading: false,
             spotted: false,
@@ -251,10 +246,40 @@
             return false;
         }
 
+        // --- HIT DETECTION ---
+        // New localized hitbox logic
+        function isBulletHittingTank(bulletPos, tank) {
+            if (!tank.visible || tank.userData.hp <= 0) return false;
+            
+            // Convert world bullet position to tank local coordinate space
+            const localBullet = tank.worldToLocal(bulletPos.clone());
+            
+            // Hull Box Check
+            // Dimensions approx: Width 3.4, Height 1.2, Length 6.0
+            const inHull = (
+                Math.abs(localBullet.x) < 1.8 && 
+                localBullet.y >= 0 && localBullet.y <= 1.3 && 
+                Math.abs(localBullet.z) < 3.1
+            );
+            
+            if (inHull) return true;
+
+            // Turret Box Check
+            // Turret is slightly higher and usually centered/forward on hull
+            // Turret local pivot is at (0, 1.4, 0.5)
+            const localTurretY = localBullet.y - 1.4;
+            const inTurret = (
+                Math.abs(localBullet.x) < 1.4 &&
+                localTurretY >= -0.1 && localTurretY <= 1.2 &&
+                Math.abs(localBullet.z - 0.5) < 2.5
+            );
+
+            return inTurret;
+        }
+
         function findSafePosition(minX, maxX, minZ, maxZ) {
             let x, z;
             let attempts = 0;
-            // Try up to 100 times to find a free spot
             while (attempts < 100) {
                 x = minX + Math.random() * (maxX - minX);
                 z = minZ + Math.random() * (maxZ - minZ);
@@ -263,7 +288,6 @@
                 }
                 attempts++;
             }
-            // Fallback: return center of the requested spawn range
             return { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
         }
 
@@ -327,7 +351,6 @@
                 mapObjects.push(water);
             }
 
-            // Terrain Mesh
             const planeGeo = new THREE.PlaneGeometry(800, 800, 100, 100);
             const posAttr = planeGeo.attributes.position;
             for(let i=0; i<posAttr.count; i++) {
@@ -347,11 +370,10 @@
             terrainMesh.receiveShadow = true;
             scene.add(terrainMesh);
             
-            // Create 3 Capture Zones
             const zoneLocations = [
-                { x: 0, z: 0, id: 1 },         // B
-                { x: -140, z: -140, id: 0 },   // A
-                { x: 140, z: 140, id: 2 }      // C
+                { x: 0, z: 0, id: 1 },         
+                { x: -140, z: -140, id: 0 },   
+                { x: 140, z: 140, id: 2 }      
             ];
 
             const capGeo = new THREE.CylinderGeometry(CONFIG.capRadius, CONFIG.capRadius, 20, 32, 1, true);
@@ -375,44 +397,33 @@
                 });
             });
 
-            // Set globals for restoration
             baseFogColor = fogColor;
             baseFogDensity = fogDensity;
-            
-            // If thermal is already on during a map switch (shouldn't happen in current flow but safe to check), force reset visual
             isThermalMode = false;
             applyVisuals();
         }
 
         function applyVisuals() {
-            // Safety check to prevent crash if fog hasn't been initialized yet
             if (!scene.fog) return;
-
             const el = document.getElementById('thermal-status');
             if (isThermalMode) {
-                // Thermal ON: No Fog, Dark BG, Low Lights, Emissive Tanks
                 scene.fog.density = 0;
                 scene.background = new THREE.Color(0x050505);
                 lightSource.intensity = 0.1;
                 ambientLight.intensity = 0.2;
-                
                 el.innerText = "THERMAL: ON";
                 el.style.color = "#0f0";
                 el.style.borderColor = "#0f0";
-                
                 setTanksEmissive(true);
             } else {
-                // Thermal OFF: Normal Fog, Normal BG, Normal Lights
                 scene.fog.density = baseFogDensity;
                 scene.fog.color.setHex(baseFogColor);
                 scene.background = new THREE.Color(baseFogColor);
                 lightSource.intensity = 0.9;
                 ambientLight.intensity = 0.5;
-                
                 el.innerText = "THERMAL: OFF";
                 el.style.color = "#555";
                 el.style.borderColor = "#555";
-                
                 setTanksEmissive(false);
             }
         }
@@ -424,7 +435,6 @@
                     t.traverse(child => {
                         if(child.isMesh && child.material && child.material.emissive) {
                             if(active) {
-                                // Set to bright white for "White Hot" thermal
                                 child.material.emissive.setHex(0xffffff);
                                 child.material.emissiveIntensity = 1.0;
                             } else {
@@ -445,7 +455,6 @@
             context.fillStyle = "white";
             context.textAlign = "center";
             context.fillText(message, 64, 90);
-            
             const texture = new THREE.CanvasTexture(canvas);
             const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
             const sprite = new THREE.Sprite(spriteMaterial);
@@ -456,28 +465,14 @@
         function createCityLayout() {
             const bGeo = new THREE.BoxGeometry(1,1,1);
             const bMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
-            
             for(let x = -200; x <= 200; x += 40) {
                 for(let z = -200; z <= 200; z += 40) {
                     let clear = false;
-                    // Broad Clear Zones to ensure safe spawning and clear lanes
-                    
-                    // Center Lane & Player/Ally Spawn Area
-                    // Clears X: -80 to 80, Z: -100 to 200
                     if (Math.abs(x) < 80 && z > -100 && z < 200) clear = true;
-                    
-                    // Capture Point A Area
                     if (Math.abs(x - (-140)) < 70 && Math.abs(z - (-140)) < 70) clear = true;
-                    
-                    // Capture Point C Area
                     if (Math.abs(x - 140) < 70 && Math.abs(z - 140) < 70) clear = true;
-                    
-                    // Enemy Spawn Base Area (Deep South)
-                    // Clears a wide rectangle at the back of the map
                     if (Math.abs(x) < 180 && z < -140 && z > -280) clear = true;
-                    
                     if (clear) continue;
-                    
                     if (Math.random() > 0.2) {
                         const h = 10 + Math.random() * 30;
                         const w = 15 + Math.random() * 10;
@@ -489,12 +484,7 @@
                         building.receiveShadow = true;
                         scene.add(building);
                         mapObjects.push(building);
-                        
-                        colliders.push({
-                            type: 'box',
-                            minX: x - w/2, maxX: x + w/2,
-                            minZ: z - d/2, maxZ: z + d/2
-                        });
+                        colliders.push({ type: 'box', minX: x - w/2, maxX: x + w/2, minZ: z - d/2, maxZ: z + d/2 });
                     }
                 }
             }
@@ -505,33 +495,26 @@
             const trunkGeo = new THREE.CylinderGeometry(0.5, 0.6, 3, 6);
             const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3a1a, roughness: 1 });
             const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2211, roughness: 1 });
-
             for(let i=0; i<count; i++) {
                 const x = (Math.random() - 0.5) * 600;
                 const z = (Math.random() - 0.5) * 600;
-                
                 let clear = false;
                 if (Math.abs(x) < 35 && Math.abs(z) < 35) clear = true;
                 if (Math.abs(x - (-140)) < 35 && Math.abs(z - (-140)) < 35) clear = true;
                 if (Math.abs(x - 140) < 35 && Math.abs(z - 140) < 35) clear = true;
                 if(clear) continue;
-
                 const group = new THREE.Group();
                 const tree = new THREE.Mesh(treeGeo, treeMat);
                 const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                trunk.position.y = 1.5;
-                tree.position.y = 7.0;
+                trunk.position.y = 1.5; tree.position.y = 7.0;
                 trunk.castShadow = true; tree.castShadow = true;
                 group.add(trunk); group.add(tree);
-                
                 const y = getTerrainHeight(x, z);
                 group.position.set(x, y, z);
                 const s = 1.0 + Math.random();
                 group.scale.set(s,s,s);
-                
                 scene.add(group);
                 mapObjects.push(group);
-                
                 colliders.push({ type: 'radius', x: x, z: z, r: 1.0 });
             }
         }
@@ -557,7 +540,6 @@
                 const x = (Math.random() - 0.5) * 600;
                 const z = (Math.random() - 0.5) * 600;
                 if(Math.abs(x) < 25) continue; 
-
                 const mesh = new THREE.Mesh(rockGeo, rockMat);
                 mesh.position.set(x, getTerrainHeight(x,z)+1, z);
                 const s = 1 + Math.random() * 2;
@@ -565,28 +547,21 @@
                 mesh.castShadow = true;
                 scene.add(mesh);
                 mapObjects.push(mesh);
-                
                 colliders.push({ type: 'radius', x: x, z: z, r: 2.0 * s });
              }
         }
 
-        // --- INIT ---
         function init() {
             scene = new THREE.Scene();
-            // Initialize default fog to prevent null errors before map creation
             scene.fog = new THREE.FogExp2(0x8899aa, 0.006); 
-
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000); 
-
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
-
             ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
             scene.add(ambientLight);
-            
             lightSource = new THREE.DirectionalLight(0xffffee, 0.9);
             lightSource.position.set(100, 200, 100);
             lightSource.castShadow = true;
@@ -599,16 +574,13 @@
             lightSource.shadow.camera.top = 400;
             lightSource.shadow.camera.bottom = -400;
             scene.add(lightSource);
-
             window.addEventListener('resize', onResize);
             document.addEventListener('keydown', (e) => onKey(e, true));
             document.addEventListener('keyup', (e) => onKey(e, false));
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mousedown', shoot);
             document.addEventListener('click', () => { if(gameActive) document.body.requestPointerLock(); });
-
             clock = new THREE.Clock();
-            
             createPlayer(); 
             animate();
         }
@@ -619,7 +591,6 @@
             el.className = `nametag ${type === 'enemy' ? 'nametag-enemy' : 'nametag-ally'}`;
             el.innerHTML = `${text}<div class="hp-bar-mini"><div class="hp-fill-mini" style="width:100%"></div></div>`;
             container.appendChild(el);
-            
             activeNametags.push({ element: el, target: target, yOffset: 4.5 });
         }
 
@@ -629,21 +600,16 @@
                     tag.element.style.display = 'none';
                     return;
                 }
-
                 const worldPos = new THREE.Vector3();
                 tag.target.getWorldPosition(worldPos);
                 worldPos.y += tag.yOffset;
                 worldPos.project(camera);
-
                 const x = (worldPos.x * .5 + .5) * window.innerWidth;
                 const y = (-(worldPos.y * .5) + .5) * window.innerHeight;
-
-                // Show nametag if in front of camera (z < 1)
                 if (worldPos.z < 1) {
                     tag.element.style.left = x + 'px';
                     tag.element.style.top = y + 'px';
                     tag.element.style.display = 'block';
-                    
                     const pct = Math.max(0, (tag.target.userData.hp / tag.target.userData.maxHp) * 100);
                     tag.element.querySelector('.hp-fill-mini').style.width = pct + '%';
                 } else {
@@ -652,87 +618,51 @@
             });
         }
 
-        // --- TANK FACTORY ---
         function createTankMesh(color, type) {
             const group = new THREE.Group();
             group.rotation.order = 'YXZ'; 
-            
             const hullMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7, metalness: 0.4 });
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 });
-
-            // Hull Main
             const hull = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 6.0), hullMat);
-            hull.position.y = 0.6; // Sit flush on ground (1.2 height / 2)
-            hull.castShadow = true; hull.receiveShadow = true;
+            hull.position.y = 0.6; hull.castShadow = true; hull.receiveShadow = true;
             group.add(hull);
-            
             if (type === 'leo') {
                 const hump = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 2.5), hullMat);
-                hump.position.set(0, 1.45, -1.75); 
-                hump.castShadow = true;
+                hump.position.set(0, 1.45, -1.75); hump.castShadow = true;
                 group.add(hump);
-                
                 const grill = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 1.5), darkMat);
                 grill.position.set(0, 1.71, -1.75);
                 group.add(grill);
             }
-
-            // Turret Group
             const turretGroup = new THREE.Group();
             turretGroup.position.set(0, 1.4, 0.5); 
             group.add(turretGroup);
-
-            // Turret Shape
             if (type === 'leo') {
                 const mainTurret = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.9, 3.0), hullMat);
-                mainTurret.castShadow = true;
-                turretGroup.add(mainTurret);
-                
+                mainTurret.castShadow = true; turretGroup.add(mainTurret);
                 const cheekGeo = new THREE.BoxGeometry(1.0, 0.9, 1.4);
-                
                 const cheekL = new THREE.Mesh(cheekGeo, hullMat);
-                cheekL.position.set(-0.85, 0, 1.2); 
-                cheekL.rotation.y = Math.PI / 5; 
-                cheekL.castShadow = true;
-                turretGroup.add(cheekL);
-                
+                cheekL.position.set(-0.85, 0, 1.2); cheekL.rotation.y = Math.PI / 5; 
+                cheekL.castShadow = true; turretGroup.add(cheekL);
                 const cheekR = new THREE.Mesh(cheekGeo, hullMat);
-                cheekR.position.set(0.85, 0, 1.2); 
-                cheekR.rotation.y = -Math.PI / 5; 
-                cheekR.castShadow = true;
-                turretGroup.add(cheekR);
-
+                cheekR.position.set(0.85, 0, 1.2); cheekR.rotation.y = -Math.PI / 5; 
+                cheekR.castShadow = true; turretGroup.add(cheekR);
                 const bustle = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.7, 0.8), hullMat);
-                bustle.position.set(0, 0, -2.0);
-                turretGroup.add(bustle);
-
+                bustle.position.set(0, 0, -2.0); turretGroup.add(bustle);
             } else {
                 const dome = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), hullMat);
-                dome.scale.set(1, 0.5, 1);
-                dome.castShadow = true;
-                turretGroup.add(dome);
+                dome.scale.set(1, 0.5, 1); dome.castShadow = true; turretGroup.add(dome);
             }
-            
-            // Barrel
             const mantletPivot = new THREE.Group();
-            mantletPivot.position.set(0, 0, 1.6); 
-            turretGroup.add(mantletPivot);
-
+            mantletPivot.position.set(0, 0, 1.6); turretGroup.add(mantletPivot);
             const barrelLen = type === 'leo' ? 8 : 6;
             const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, barrelLen, 16), hullMat);
-            barrel.rotation.x = -Math.PI/2;
-            barrel.position.set(0, 0, barrelLen/2); 
-            barrel.castShadow = true;
-            mantletPivot.add(barrel);
-            
-            group.turret = turretGroup;
-            group.mantlet = mantletPivot;
-            
+            barrel.rotation.x = -Math.PI/2; barrel.position.set(0, 0, barrelLen/2); 
+            barrel.castShadow = true; mantletPivot.add(barrel);
+            group.turret = turretGroup; group.mantlet = mantletPivot;
             const muzzle = new THREE.Object3D();
-            muzzle.position.set(0, 0, barrelLen); 
-            mantletPivot.add(muzzle);
+            muzzle.position.set(0, 0, barrelLen); mantletPivot.add(muzzle);
             group.muzzle = muzzle;
-
             return group;
         }
 
@@ -744,38 +674,29 @@
         }
         
         function spawnEntities() {
-            // Allies
             const ally1 = createTankMesh(0x4b5320, 'leo');
             const a1Pos = findSafePosition(-30, -10, 10, 30);
             ally1.position.set(a1Pos.x, getTerrainHeight(a1Pos.x, a1Pos.z), a1Pos.z);
             ally1.userData = { hp: CONFIG.allyHP, maxHp: CONFIG.allyHP, team: 'ally', state: 'idle', nextMove: 0 };
             createNametag(ally1, "Leopard 2A6", "ally");
-            scene.add(ally1);
-            allies.push(ally1);
-            
+            scene.add(ally1); allies.push(ally1);
             const ally2 = createTankMesh(0x4b5320, 'leo');
             const a2Pos = findSafePosition(10, 30, 10, 30);
             ally2.position.set(a2Pos.x, getTerrainHeight(a2Pos.x, a2Pos.z), a2Pos.z);
             ally2.userData = { hp: CONFIG.allyHP, maxHp: CONFIG.allyHP, team: 'ally', state: 'idle', nextMove: 0 };
             createNametag(ally2, "Leopard 2 PSO", "ally");
-            scene.add(ally2);
-            allies.push(ally2);
-
-            // Enemies
-            const count = 5;
-            for(let i=0; i<count; i++) {
+            scene.add(ally2); allies.push(ally2);
+            for(let i=0; i<5; i++) {
                 const en = createTankMesh(0x3a2a2a, 't90');
                 const pos = findSafePosition(-150, 150, -250, -150);
                 en.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
                 en.rotation.y = Math.PI; 
                 en.userData = { hp: CONFIG.enemyHP, maxHp: CONFIG.enemyHP, team: 'enemy', state: 'idle', nextMove: 0, lastShot: 0 };
                 createNametag(en, "T-90M", "enemy");
-                scene.add(en);
-                enemies.push(en);
+                scene.add(en); enemies.push(en);
             }
         }
 
-        // --- UI FUNCTIONS ---
         function selectMap(type) {
             currentMapType = type;
             document.querySelectorAll('.map-select-container button').forEach(b => b.classList.remove('active'));
@@ -788,33 +709,20 @@
             document.getElementById('intro-screen').style.display = 'none';
             document.body.requestPointerLock();
             gameActive = true;
-            
-            // Reset state
             tickets = { ally: 1000, enemy: 1000 };
-            
-            // Ensure entities are cleared before recreating environment
             allies.forEach(a => scene.remove(a)); allies = [];
             enemies.forEach(e => scene.remove(e)); enemies = [];
             activeNametags.forEach(t => t.element.remove()); activeNametags = [];
             bullets.forEach(b => scene.remove(b)); bullets = [];
-
             createEnvironment(currentMapType);
-            
             const pPos = findSafePosition(-10, 10, 70, 90);
             player.position.set(pPos.x, getTerrainHeight(pPos.x, pPos.z), pPos.z);
-            player.rotation.set(0,0,0);
-            player.userData.hp = CONFIG.playerHP;
-            
-            spawnEntities();
-            updateHUD();
-            
-            // Apply current thermal state (likely OFF at start, but ensures consistency)
-            applyVisuals();
+            player.rotation.set(0,0,0); player.userData.hp = CONFIG.playerHP;
+            spawnEntities(); updateHUD(); applyVisuals();
         }
         
         function resetGame() {
-            gameActive = false;
-            document.exitPointerLock();
+            gameActive = false; document.exitPointerLock();
             document.getElementById('game-over').style.display = 'none';
             document.getElementById('intro-screen').style.display = 'flex';
         }
@@ -822,45 +730,27 @@
         function updateCrewStatus() {
             const el = document.getElementById('crew-status');
             const now = Date.now();
-            
-            // Priority: Kill > Hit > Reload > Spotted > Loaded
-            if (now - crewState.killTimer < 2000) {
-                el.innerText = "TARGET DESTROYED!"; 
-                el.style.color = "#ff0000"; 
-                return;
-            }
-
-            if (now - crewState.hitTimer < 1500) {
-                el.innerText = "HIT!"; el.style.color = "#ff3333"; return;
-            }
-            if (now - lastShotTime < CONFIG.reloadTime) {
-                el.innerText = "RELOADING..."; el.style.color = "#ffaa00"; return;
-            }
-            if (crewState.spotted) {
-                el.innerText = "SPOTTED!"; el.style.color = "#ffff00"; return;
-            }
+            if (now - crewState.killTimer < 2000) { el.innerText = "TARGET DESTROYED!"; el.style.color = "#ff0000"; return; }
+            if (now - crewState.hitTimer < 1500) { el.innerText = "HIT!"; el.style.color = "#ff3333"; return; }
+            if (now - lastShotTime < CONFIG.reloadTime) { el.innerText = "RELOADING..."; el.style.color = "#ffaa00"; return; }
+            if (crewState.spotted) { el.innerText = "SPOTTED!"; el.style.color = "#ffff00"; return; }
             el.innerText = "LOADED"; el.style.color = "#4caf50";
         }
 
         function gameOver(title, reason) {
-            gameActive = false;
-            document.exitPointerLock();
+            gameActive = false; document.exitPointerLock();
             document.getElementById('game-over').style.display = 'flex';
             document.getElementById('go-title').innerText = title;
             document.getElementById('go-reason').innerText = reason;
         }
 
-        // --- COMBAT LOGIC ---
         function shoot() {
             if (!gameActive || player.userData.hp <= 0) return;
             const now = Date.now();
             if (now - lastShotTime < CONFIG.reloadTime) return;
             lastShotTime = now;
-
-            // Recoil
             player.mantlet.position.z -= 0.4;
             setTimeout(() => player.mantlet.position.z = 0, 200); 
-            
             fireBullet(player, true);
         }
 
@@ -869,31 +759,20 @@
             geo.rotateX(-Math.PI / 2); 
             const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
             const bullet = new THREE.Mesh(geo, mat);
-            
             const startPos = new THREE.Vector3();
             shooter.muzzle.getWorldPosition(startPos);
             bullet.position.copy(startPos);
-
-            const dir = new THREE.Vector3(0, 0, 1);
-            dir.applyQuaternion(shooter.muzzle.getWorldQuaternion(new THREE.Quaternion()));
-            
+            const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(shooter.muzzle.getWorldQuaternion(new THREE.Quaternion()));
             if (!isPlayer) {
-                dir.x += (Math.random()-0.5)*0.08;
-                dir.y += (Math.random()-0.5)*0.08;
-                dir.z += (Math.random()-0.5)*0.08;
+                dir.x += (Math.random()-0.5)*0.08; dir.y += (Math.random()-0.5)*0.08; dir.z += (Math.random()-0.5)*0.08;
                 dir.normalize();
             }
-            
             bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
             bullet.velocity = dir.multiplyScalar(CONFIG.bulletSpeed);
             bullet.userData = { dmg: 50, owner: isPlayer ? 'player' : 'ai' };
-
-            scene.add(bullet);
-            bullets.push(bullet);
-            
+            scene.add(bullet); bullets.push(bullet);
             const flash = new THREE.PointLight(0xffaa00, 4, 20);
-            flash.position.copy(startPos);
-            scene.add(flash);
+            flash.position.copy(startPos); scene.add(flash);
             setTimeout(() => scene.remove(flash), 50);
         }
 
@@ -915,225 +794,115 @@
             return start + diff * t;
         }
 
-        // --- MAIN LOOP ---
         function animate() {
             requestAnimationFrame(animate);
             if (!gameActive) return;
-
             const now = Date.now();
             const dt = clock.getDelta();
             const frameRatio = dt * 60; 
-
-            updateNametags();
-            updateCrewStatus();
-            
-            if (!keys.c) {
-                freeLookYaw *= 0.8;
-                freeLookPitch *= 0.8;
-            }
-
+            updateNametags(); updateCrewStatus();
+            if (!keys.c) { freeLookYaw *= 0.8; freeLookPitch *= 0.8; }
             if (keys.shift && !isSniperMode) {
-                isSniperMode = true;
-                camera.fov = 10;
+                isSniperMode = true; camera.fov = 10;
                 document.getElementById('sniper-overlay').style.display = 'block';
                 document.getElementById('sniper-lines').style.display = 'block';
-                document.getElementById('crosshair').style.opacity = 0;
-                camera.updateProjectionMatrix();
+                document.getElementById('crosshair').style.opacity = 0; camera.updateProjectionMatrix();
             } else if (!keys.shift && isSniperMode) {
-                isSniperMode = false;
-                camera.fov = 60;
+                isSniperMode = false; camera.fov = 60;
                 document.getElementById('sniper-overlay').style.display = 'none';
                 document.getElementById('sniper-lines').style.display = 'none';
-                document.getElementById('crosshair').style.opacity = 1;
-                camera.updateProjectionMatrix();
+                document.getElementById('crosshair').style.opacity = 1; camera.updateProjectionMatrix();
             }
-
-            // 1. PLAYER PHYSICS
             if (player.userData.hp > 0) {
                 const oldPos = player.position.clone();
                 let moved = false;
-                
                 if (keys.w) { player.translateZ(CONFIG.playerSpeed); moved = true; }
                 if (keys.s) { player.translateZ(-CONFIG.playerSpeed); moved = true; }
                 if (keys.a) player.rotation.y += CONFIG.playerTurnSpeed;
                 if (keys.d) player.rotation.y -= CONFIG.playerTurnSpeed;
-                
-                if (moved && checkCollision(player.position.x, player.position.z)) {
-                    player.position.copy(oldPos); 
-                } else {
+                if (moved && checkCollision(player.position.x, player.position.z)) { player.position.copy(oldPos); }
+                else {
                     player.position.y = getTerrainHeight(player.position.x, player.position.z);
-                    
-                    // Suspension
-                    const tankLen = 3.0; 
-                    const angle = player.rotation.y;
-                    const dx = Math.sin(angle);
-                    const dz = Math.cos(angle);
-                    
-                    const fX = player.position.x + dx * tankLen;
-                    const fZ = player.position.z + dz * tankLen;
-                    const bX = player.position.x - dx * tankLen;
-                    const bZ = player.position.z - dz * tankLen;
-                    
-                    const hFront = getTerrainHeight(fX, fZ);
-                    const hBack = getTerrainHeight(bX, bZ);
-                    
-                    const pitch = Math.atan2(hFront - hBack, tankLen * 2);
-                    player.rotation.x = pitch; 
+                    const tankLen = 3.0; const angle = player.rotation.y;
+                    const dx = Math.sin(angle); const dz = Math.cos(angle);
+                    const hFront = getTerrainHeight(player.position.x + dx * tankLen, player.position.z + dz * tankLen);
+                    const hBack = getTerrainHeight(player.position.x - dx * tankLen, player.position.z - dz * tankLen);
+                    player.rotation.x = Math.atan2(hFront - hBack, tankLen * 2); 
                 }
-
                 if (document.pointerLockElement === document.body) {
                     player.turret.rotation.y = -currentYaw - player.rotation.y;
                     player.mantlet.rotation.x = currentPitch;
                 }
             }
-
-            // 2. CROSSHAIR & CAMERA
             const turretWorldQuat = new THREE.Quaternion();
             player.turret.getWorldQuaternion(turretWorldQuat);
-            
             if(!isSniperMode) {
-                const aimDist = 500;
-                const muzzlePos = new THREE.Vector3();
+                const aimDist = 500; const muzzlePos = new THREE.Vector3();
                 player.muzzle.getWorldPosition(muzzlePos);
                 const aimDir = new THREE.Vector3(0,0,1).applyQuaternion(player.muzzle.getWorldQuaternion(new THREE.Quaternion()));
-                const aimPoint = muzzlePos.clone().add(aimDir.multiplyScalar(aimDist));
-                aimPoint.project(camera);
-                const cx = (aimPoint.x * .5 + .5) * window.innerWidth;
-                const cy = (-(aimPoint.y * .5) + .5) * window.innerHeight;
+                const aimPoint = muzzlePos.clone().add(aimDir.multiplyScalar(aimDist)).project(camera);
                 const ch = document.getElementById('crosshair');
                 if(aimPoint.z < 1) {
-                    ch.style.left = cx + 'px';
-                    ch.style.top = cy + 'px';
+                    ch.style.left = (aimPoint.x * .5 + .5) * window.innerWidth + 'px';
+                    ch.style.top = (-(aimPoint.y * .5) + .5) * window.innerHeight + 'px';
                 }
             }
-
             if (isSniperMode) {
-                const sightOffset = new THREE.Vector3(0, 0.5, 2.0); 
-                sightOffset.applyQuaternion(player.mantlet.getWorldQuaternion(new THREE.Quaternion())); 
-                sightOffset.add(player.mantlet.getWorldPosition(new THREE.Vector3()));
+                const sightOffset = new THREE.Vector3(0, 0.5, 2.0).applyQuaternion(player.mantlet.getWorldQuaternion(new THREE.Quaternion())).add(player.mantlet.getWorldPosition(new THREE.Vector3()));
                 camera.position.copy(sightOffset);
-                const lookDir = new THREE.Vector3(0, 0, 1).applyQuaternion(player.mantlet.getWorldQuaternion(new THREE.Quaternion()));
-                camera.lookAt(camera.position.clone().add(lookDir));
+                camera.lookAt(camera.position.clone().add(new THREE.Vector3(0, 0, 1).applyQuaternion(player.mantlet.getWorldQuaternion(new THREE.Quaternion()))));
             } else {
-                const freeLookEuler = new THREE.Euler(freeLookPitch, -freeLookYaw, 0, 'YXZ');
-                const freeLookQuat = new THREE.Quaternion().setFromEuler(freeLookEuler);
-                const cameraQuat = turretWorldQuat.clone().multiply(freeLookQuat);
-                const camOffset = new THREE.Vector3(0, 6, -14); 
-                camOffset.applyQuaternion(cameraQuat);
-                camOffset.add(player.position);
+                const cameraQuat = turretWorldQuat.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(freeLookPitch, -freeLookYaw, 0, 'YXZ')));
+                const camOffset = new THREE.Vector3(0, 6, -14).applyQuaternion(cameraQuat).add(player.position);
                 camera.position.lerp(camOffset, 0.15);
-                const lookDir = new THREE.Vector3(0, 0, 1).applyQuaternion(cameraQuat);
-                const lookTarget = player.position.clone().add(new THREE.Vector3(0, 2, 0)).add(lookDir.multiplyScalar(30));
-                camera.lookAt(lookTarget);
+                camera.lookAt(player.position.clone().add(new THREE.Vector3(0, 2, 0)).add(new THREE.Vector3(0, 0, 1).applyQuaternion(cameraQuat).multiplyScalar(30)));
             }
-
-            // 4. CAPTURE & LOGIC
             capZones.forEach(z => { z.allies = 0; z.enemies = 0; });
             const allTanks = [...allies, ...enemies, player];
-
             allTanks.forEach(tank => {
                 if(tank.userData.hp <= 0) return;
-                
-                capZones.forEach(z => {
-                    const dx = tank.position.x - z.pos.x;
-                    const dz = tank.position.z - z.pos.z;
-                    if ((dx*dx + dz*dz) < (CONFIG.capRadius * CONFIG.capRadius)) {
-                        if (tank.userData.team === 'enemy') z.enemies++;
-                        else z.allies++;
-                    }
-                });
-
+                capZones.forEach(z => { if (tank.position.distanceTo(z.pos) < CONFIG.capRadius) { if (tank.userData.team === 'enemy') z.enemies++; else z.allies++; } });
                 if (tank === player) return;
-
                 tank.position.y = getTerrainHeight(tank.position.x, tank.position.z);
-                
-                let target = null;
-                let minDist = 9999;
-                
+                let target = null; let minDist = 9999;
                 const potentialTargets = tank.userData.team === 'enemy' ? [...allies, player] : enemies;
-                potentialTargets.forEach(t => {
-                    if(t.userData.hp > 0) {
-                        const d = tank.position.distanceTo(t.position);
-                        if(d < minDist) { minDist = d; target = t; }
-                    }
-                });
-
+                potentialTargets.forEach(t => { if(t.userData.hp > 0) { const d = tank.position.distanceTo(t.position); if(d < minDist) { minDist = d; target = t; } } });
                 if (target === player && minDist < 200 && tank.userData.team === 'enemy') crewState.spotted = true;
-
                 if (target) {
                     const toTarget = target.position.clone().sub(tank.position);
-                    const targetAngle = Math.atan2(toTarget.x, toTarget.z);
-                    const localDesired = targetAngle - tank.rotation.y;
-                    tank.turret.rotation.y = lerpAngle(tank.turret.rotation.y, localDesired, 0.05);
-
+                    tank.turret.rotation.y = lerpAngle(tank.turret.rotation.y, Math.atan2(toTarget.x, toTarget.z) - tank.rotation.y, 0.05);
                     const dist = tank.position.distanceTo(target.position);
                     if (dist > 80 && now > tank.userData.nextMove) {
-                        const oldPos = tank.position.clone();
-                        const moveDir = toTarget.clone().normalize();
+                        const oldPos = tank.position.clone(); const moveDir = toTarget.clone().normalize();
                         tank.position.add(moveDir.multiplyScalar(CONFIG.playerSpeed * 0.6));
-                        
-                        if (checkCollision(tank.position.x, tank.position.z)) {
-                             tank.position.copy(oldPos); 
-                             tank.userData.nextMove = now + 500; 
-                        }
-                        
-                        const bodyTarget = Math.atan2(moveDir.x, moveDir.z);
-                        tank.rotation.y = lerpAngle(tank.rotation.y, bodyTarget, 0.05);
-                        if(Math.random() < 0.01) tank.userData.nextMove = now + 1000;
+                        if (checkCollision(tank.position.x, tank.position.z)) { tank.position.copy(oldPos); tank.userData.nextMove = now + 500; }
+                        tank.rotation.y = lerpAngle(tank.rotation.y, Math.atan2(moveDir.x, moveDir.z), 0.05);
                     }
-
                     if (dist < 200 && now - tank.userData.lastShot > 3000) {
-                         const currentAim = new THREE.Vector3(0,0,1).applyQuaternion(tank.turret.getWorldQuaternion(new THREE.Quaternion()));
-                        const dirTo = toTarget.clone().normalize();
-                        if (currentAim.dot(dirTo) > 0.9) {
-                            fireBullet(tank, false);
-                            tank.userData.lastShot = now;
+                        if (new THREE.Vector3(0,0,1).applyQuaternion(tank.turret.getWorldQuaternion(new THREE.Quaternion())).dot(toTarget.clone().normalize()) > 0.9) {
+                            fireBullet(tank, false); tank.userData.lastShot = now;
                         }
                     }
                 }
             });
-
-            const captureRate = 100 / (60 * 60); 
-            
+            const capRate = 100 / (60 * 60); 
             capZones.forEach((z, i) => {
                 const uiEl = document.getElementById(`cap-${z.id}`);
-                
-                if (z.allies > 0 && z.enemies === 0) {
-                    z.status = Math.min(100, z.status + captureRate * frameRatio);
-                } else if (z.enemies > 0 && z.allies === 0) {
-                    z.status = Math.max(-100, z.status - captureRate * frameRatio);
-                }
-
-                if (z.status >= 100) {
-                    z.owner = 1; 
-                    z.mesh.material.color.setHex(0x0000ff);
-                    uiEl.style.backgroundColor = 'rgba(0, 100, 255, 0.6)';
-                    uiEl.style.borderColor = '#88ccff';
-                    tickets.enemy -= CONFIG.ticketDrainRate * frameRatio;
-                } else if (z.status <= -100) {
-                    z.owner = -1; 
-                    z.mesh.material.color.setHex(0xff0000);
-                    uiEl.style.backgroundColor = 'rgba(255, 0, 0, 0.6)';
-                    uiEl.style.borderColor = '#ff5555';
-                    tickets.ally -= CONFIG.ticketDrainRate * frameRatio;
-                } else {
-                    z.owner = 0; 
-                    z.mesh.material.color.setHex(0xffff00);
-                    if(z.allies > 0 && z.enemies > 0) uiEl.style.borderColor = '#ffaa00'; 
-                    else uiEl.style.borderColor = '#fff';
-                    uiEl.style.backgroundColor = 'rgba(0,0,0,0.5)';
-                }
+                if (z.allies > 0 && z.enemies === 0) z.status = Math.min(100, z.status + capRate * frameRatio);
+                else if (z.enemies > 0 && z.allies === 0) z.status = Math.max(-100, z.status - capRate * frameRatio);
+                if (z.status >= 100) { z.owner = 1; z.mesh.material.color.setHex(0x0000ff); uiEl.style.backgroundColor = 'rgba(0, 100, 255, 0.6)'; uiEl.style.borderColor = '#88ccff'; tickets.enemy -= CONFIG.ticketDrainRate * frameRatio; }
+                else if (z.status <= -100) { z.owner = -1; z.mesh.material.color.setHex(0xff0000); uiEl.style.backgroundColor = 'rgba(255, 0, 0, 0.6)'; uiEl.style.borderColor = '#ff5555'; tickets.ally -= CONFIG.ticketDrainRate * frameRatio; }
+                else { z.owner = 0; z.mesh.material.color.setHex(0xffff00); uiEl.style.borderColor = (z.allies > 0 && z.enemies > 0) ? '#ffaa00' : '#fff'; uiEl.style.backgroundColor = 'rgba(0,0,0,0.5)'; }
             });
-
             document.getElementById('ally-tickets').innerText = Math.floor(tickets.ally);
             document.getElementById('enemy-tickets').innerText = Math.floor(tickets.enemy);
-            
             if (tickets.ally <= 0) gameOver("DEFEAT", "Our reinforcements are depleted.");
             if (tickets.enemy <= 0) gameOver("VICTORY", "Enemy forces are retreating.");
 
-            // 5. BULLETS & COLLISION
+            // UPDATED BULLET LOOP WITH SEGMENT CHECKS
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
+                const prevPos = b.position.clone();
                 b.position.add(b.velocity);
                 
                 if (b.position.y < getTerrainHeight(b.position.x, b.position.z) || b.position.distanceTo(player.position) > 600) {
@@ -1141,55 +910,47 @@
                 }
 
                 let hit = false;
-                const hitRadius = 5.0; 
+                const targets = b.userData.owner === 'player' ? enemies : [...allies, player];
+                
+                // Segment interpolation check: ensure bullet doesn't skip through tank
+                // We check current position and a mid-point for high speed accuracy
+                const checkPoints = [b.position, prevPos]; 
 
-                // Player Hit Check
-                if (b.userData.owner !== 'player' && b.position.distanceTo(player.position) < hitRadius) {
-                     if (player.userData.hp > 0) {
-                        player.userData.hp -= b.userData.dmg;
-                        updateHUD();
-                        spawnParticles(b.position, 0xaaaa55, 10);
-                        if (player.userData.hp <= 0) gameOver("MIA", "Vehicle Destroyed.");
-                        hit = true;
-                    }
-                }
-
-                // AI Hit Check
-                if (!hit) {
-                    const targets = b.userData.owner === 'player' ? enemies : [...allies];
+                for (let cp of checkPoints) {
                     for (let t of targets) {
-                        if (t.userData.hp > 0 && b.position.distanceTo(t.position) < hitRadius) {
+                        if (t === player && b.userData.owner === 'player') continue;
+                        if (t.userData.hp <= 0) continue;
+
+                        if (isBulletHittingTank(cp, t)) {
                             t.userData.hp -= b.userData.dmg;
-                            spawnParticles(b.position, 0xff0000, 8);
+                            spawnParticles(cp, 0xffaa00, 12);
                             hit = true;
-                            if (b.userData.owner === 'player') crewState.hitTimer = Date.now();
-                            if (t.userData.hp <= 0) {
-                                spawnParticles(t.position, 0x333333, 50);
-                                t.visible = false; 
-                                if (t.userData.team === 'enemy') tickets.enemy -= 50;
-                                else tickets.ally -= 50;
-                                
-                                // Player Kill Confirmation
-                                if (b.userData.owner === 'player') {
+                            if (b.userData.owner === 'player') {
+                                crewState.hitTimer = Date.now();
+                                if (t.userData.hp <= 0) {
                                     crewState.killTimer = Date.now();
+                                    spawnParticles(t.position, 0x222222, 50);
+                                    t.visible = false;
+                                    if (t.userData.team === 'enemy') tickets.enemy -= 50;
+                                    else tickets.ally -= 50;
                                 }
+                            } else if (t === player) {
+                                updateHUD();
+                                if (player.userData.hp <= 0) gameOver("MIA", "Vehicle Destroyed.");
                             }
                             break;
                         }
                     }
+                    if (hit) break;
                 }
 
                 if (hit) { scene.remove(b); bullets.splice(i, 1); }
             }
 
             for(let i=particles.length-1; i>=0; i--) {
-                const p = particles[i];
-                p.position.add(p.userData.vel);
-                p.userData.life--;
-                p.scale.multiplyScalar(0.95);
+                const p = particles[i]; p.position.add(p.userData.vel); p.userData.life--; p.scale.multiplyScalar(0.95);
                 if(p.userData.life <= 0) { scene.remove(p); particles.splice(i, 1); }
             }
-
             renderer.render(scene, camera);
         }
 
@@ -1199,38 +960,15 @@
             document.getElementById('hp-bar').style.backgroundColor = pct < 30 ? '#ff0000' : '#4caf50';
         }
 
-        function onResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function onKey(e, pressed) {
-            const k = e.key.toLowerCase();
-            if(keys.hasOwnProperty(k)) keys[k] = pressed;
-            
-            // Toggle Thermal on Right Shift (keydown only)
-            if(pressed && e.code === 'ShiftRight') {
-                isThermalMode = !isThermalMode;
-                applyVisuals();
-            }
-        }
-
+        function onResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function onKey(e, pressed) { const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = pressed; if(pressed && e.code === 'ShiftRight') { isThermalMode = !isThermalMode; applyVisuals(); } }
         function onMouseMove(e) {
             if (document.pointerLockElement === document.body) {
                 const sens = isSniperMode ? 0.0004 : 0.002;
-                if (keys.c) {
-                    freeLookYaw += e.movementX * sens;
-                    freeLookPitch += e.movementY * sens;
-                    freeLookPitch = Math.max(-1.0, Math.min(1.0, freeLookPitch));
-                } else {
-                    currentYaw += e.movementX * sens;
-                    currentPitch += e.movementY * sens;
-                    currentPitch = Math.max(-0.4, Math.min(0.2, currentPitch));
-                }
+                if (keys.c) { freeLookYaw += e.movementX * sens; freeLookPitch += e.movementY * sens; freeLookPitch = Math.max(-1.0, Math.min(1.0, freeLookPitch)); }
+                else { currentYaw += e.movementX * sens; currentPitch += e.movementY * sens; currentPitch = Math.max(-0.4, Math.min(0.2, currentPitch)); }
             }
         }
-
         init();
     </script>
 </body>
