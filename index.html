@@ -203,6 +203,9 @@
         let gameActive = false;
         let currentMapType = '';
         
+        // Raycaster for precise hit detection
+        const raycaster = new THREE.Raycaster();
+
         let lightSource, ambientLight;
         let isThermalMode = false;
         let baseFogDensity = 0.005;
@@ -246,37 +249,8 @@
             return false;
         }
 
-        // --- HIT DETECTION ---
-        // New localized hitbox logic
-        function isBulletHittingTank(bulletPos, tank) {
-            if (!tank.visible || tank.userData.hp <= 0) return false;
-            
-            // Convert world bullet position to tank local coordinate space
-            const localBullet = tank.worldToLocal(bulletPos.clone());
-            
-            // Hull Box Check
-            // Dimensions approx: Width 3.4, Height 1.2, Length 6.0
-            const inHull = (
-                Math.abs(localBullet.x) < 1.8 && 
-                localBullet.y >= 0 && localBullet.y <= 1.3 && 
-                Math.abs(localBullet.z) < 3.1
-            );
-            
-            if (inHull) return true;
-
-            // Turret Box Check
-            // Turret is slightly higher and usually centered/forward on hull
-            // Turret local pivot is at (0, 1.4, 0.5)
-            const localTurretY = localBullet.y - 1.4;
-            const inTurret = (
-                Math.abs(localBullet.x) < 1.4 &&
-                localTurretY >= -0.1 && localTurretY <= 1.2 &&
-                Math.abs(localBullet.z - 0.5) < 2.5
-            );
-
-            return inTurret;
-        }
-
+        // --- HIT DETECTION REMOVED (Replaced by Raycasting in Animate) ---
+        
         function findSafePosition(minX, maxX, minZ, maxZ) {
             let x, z;
             let attempts = 0;
@@ -899,52 +873,73 @@
             if (tickets.ally <= 0) gameOver("DEFEAT", "Our reinforcements are depleted.");
             if (tickets.enemy <= 0) gameOver("VICTORY", "Enemy forces are retreating.");
 
-            // UPDATED BULLET LOOP WITH SEGMENT CHECKS
+            // UPDATED BULLET LOOP WITH RAYCASTING
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 const prevPos = b.position.clone();
                 b.position.add(b.velocity);
                 
+                // Remove if underground or too far
                 if (b.position.y < getTerrainHeight(b.position.x, b.position.z) || b.position.distanceTo(player.position) > 600) {
                     scene.remove(b); bullets.splice(i, 1); continue;
                 }
 
-                let hit = false;
+                // Raycast Setup
+                const travelVec = b.velocity.clone();
+                const travelDist = travelVec.length(); 
+                // Direction must be normalized for raycaster
+                raycaster.set(prevPos, travelVec.normalize());
+                // Limit ray length to how far bullet traveled this frame (prevents shooting through walls infinitely)
+                raycaster.far = travelDist;
+
+                // Determine targets based on who shot
+                // AI cannot hit other AI (prevents friendly fire among enemies)
                 const targets = b.userData.owner === 'player' ? enemies : [...allies, player];
                 
-                // Segment interpolation check: ensure bullet doesn't skip through tank
-                // We check current position and a mid-point for high speed accuracy
-                const checkPoints = [b.position, prevPos]; 
+                // Recursive true checks all children meshes (hull, turret parts, barrel)
+                const intersects = raycaster.intersectObjects(targets, true);
 
-                for (let cp of checkPoints) {
-                    for (let t of targets) {
-                        if (t === player && b.userData.owner === 'player') continue;
-                        if (t.userData.hp <= 0) continue;
+                if (intersects.length > 0) {
+                    // Get the closest hit
+                    const hitInfo = intersects[0];
+                    const hitObject = hitInfo.object;
 
-                        if (isBulletHittingTank(cp, t)) {
-                            t.userData.hp -= b.userData.dmg;
-                            spawnParticles(cp, 0xffaa00, 12);
-                            hit = true;
-                            if (b.userData.owner === 'player') {
-                                crewState.hitTimer = Date.now();
-                                if (t.userData.hp <= 0) {
-                                    crewState.killTimer = Date.now();
-                                    spawnParticles(t.position, 0x222222, 50);
-                                    t.visible = false;
-                                    if (t.userData.team === 'enemy') tickets.enemy -= 50;
-                                    else tickets.ally -= 50;
-                                }
-                            } else if (t === player) {
-                                updateHUD();
-                                if (player.userData.hp <= 0) gameOver("MIA", "Vehicle Destroyed.");
-                            }
-                            break;
-                        }
+                    // Traverse up to find the main tank Group (which holds the HP)
+                    let tank = hitObject;
+                    while(tank.parent && tank.parent.type !== 'Scene') {
+                        if (tank.userData && tank.userData.hp !== undefined) break; 
+                        tank = tank.parent;
                     }
-                    if (hit) break;
-                }
 
-                if (hit) { scene.remove(b); bullets.splice(i, 1); }
+                    // Validate Hit
+                    if (tank && tank.userData.hp > 0) {
+                        // Avoid self-hit (edge case if bullet spawns inside)
+                        // But owner logic usually prevents this via target lists
+                        
+                        tank.userData.hp -= b.userData.dmg;
+                        
+                        // Spawn particles exactly where ray hit the mesh
+                        spawnParticles(hitInfo.point, 0xffaa00, 12);
+                        
+                        if (b.userData.owner === 'player') {
+                            crewState.hitTimer = Date.now();
+                            if (tank.userData.hp <= 0) {
+                                crewState.killTimer = Date.now();
+                                spawnParticles(tank.position, 0x222222, 50);
+                                tank.visible = false;
+                                if (tank.userData.team === 'enemy') tickets.enemy -= 50;
+                                else tickets.ally -= 50;
+                            }
+                        } else if (tank === player) {
+                            updateHUD();
+                            if (player.userData.hp <= 0) gameOver("MIA", "Vehicle Destroyed.");
+                        }
+                        
+                        // Destroy bullet
+                        scene.remove(b);
+                        bullets.splice(i, 1);
+                    }
+                }
             }
 
             for(let i=particles.length-1; i>=0; i--) {
