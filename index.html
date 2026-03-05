@@ -53,14 +53,39 @@
             font-size: 20px; font-weight: bold; color: #555;
             border: 2px solid #555; padding: 10px;
         }
+        
+        #menu-btn-ingame {
+            position: absolute; top: 20px; left: 20px;
+            font-size: 16px; font-weight: bold; color: #ddd;
+            border: 2px solid #555; padding: 10px 20px;
+            background: rgba(0,0,0,0.5); cursor: pointer; pointer-events: auto;
+            transition: 0.2s;
+        }
+        #menu-btn-ingame:hover { background: #ddd; color: #111; border-color: #fff; }
 
+        #ammo-status {
+            position: absolute; bottom: 100px; right: 20px;
+            text-align: right; color: #fff; text-shadow: 1px 1px 0 #000;
+        }
+
+        /* Main Crosshair (Camera Center) */
         #crosshair {
             position: absolute; width: 40px; height: 40px;
+            top: 50%; left: 50%; /* Fixed Center */
             border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
             transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center;
             z-index: 5; pointer-events: none; transition: opacity 0.1s;
         }
         #crosshair::after { content: ''; width: 4px; height: 4px; background: #fff; border-radius: 50%; }
+
+        /* Gun Reticle (Follows Turret) */
+        #gun-reticle {
+            position: absolute; width: 20px; height: 20px;
+            border: 2px solid rgba(255, 0, 0, 0.7); border-radius: 50%;
+            transform: translate(-50%, -50%); 
+            z-index: 4; pointer-events: none; display: none;
+            box-shadow: 0 0 5px red;
+        }
 
         /* Sniper Overlay */
         #sniper-overlay {
@@ -100,8 +125,9 @@
 
         h1 { font-size: 50px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 5px; color: #dcdcdc; border-bottom: 2px solid #555; padding-bottom: 10px; }
         p { font-size: 18px; color: #aaa; margin-bottom: 30px; }
+        h3 { color: #ddd; margin-bottom: 10px; text-transform: uppercase; border-bottom: 1px solid #444; width: 100%; text-align: center; padding-bottom: 5px;}
         
-        .map-select-container { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-bottom: 30px; }
+        .selection-row { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-bottom: 30px; }
         
         button {
             background: rgba(255,255,255,0.05); border: 1px solid #666; color: #ddd; padding: 15px 30px;
@@ -118,6 +144,7 @@
 
     <!-- HUD -->
     <div id="ui-layer">
+        <button id="menu-btn-ingame" onclick="resetGame()">MAIN MENU</button>
         <div id="thermal-status">THERMAL: OFF</div>
         <div id="ticket-bar">
             <div class="ticket-box" id="ally-tickets">1000</div>
@@ -135,30 +162,40 @@
         <div id="sniper-lines"></div>
 
         <div class="hud-panel" style="margin-top: auto;">
-            <div style="color: #4caf50; font-weight: bold; margin-bottom: 5px;">LEOPARD 2A7V</div>
+            <div id="vehicle-name" style="color: #4caf50; font-weight: bold; margin-bottom: 5px;">LEOPARD 2A7V</div>
             <div class="bar-container"><div id="hp-bar" class="bar-fill"></div></div>
             <div style="font-size: 12px; margin-top: 5px; color: #aaa;">HULL INTEGRITY</div>
-            <div style="font-size: 12px; color: #aaa; margin-top:5px;">[R-SHIFT] TOGGLE THERMAL</div>
+            <div style="font-size: 12px; color: #aaa; margin-top:5px;" id="controls-hint">[R-SHIFT] THERMAL | [L-CLICK] FIRE</div>
         </div>
         
         <div id="crew-status">LOADED</div>
+        <div id="ammo-status"></div>
     </div>
 
     <div id="crosshair"></div>
+    <div id="gun-reticle"></div>
 
     <!-- Intro Screen -->
     <div id="intro-screen" class="fullscreen-overlay">
         <h1>ARMORED ASSAULT</h1>
-        <p>SELECT BATTLEFIELD</p>
         
-        <div class="map-select-container">
+        <h3>Select Vehicle</h3>
+        <div class="selection-row" id="vehicle-select">
+            <button class="active" onclick="selectVehicle('leo')">LEOPARD 2A7</button>
+            <button onclick="selectVehicle('gepard')">GEPARD AA</button>
+            <button onclick="selectVehicle('didgori')">DIDGORI 3</button>
+            <button onclick="selectVehicle('hstvl')">HSTV-L</button>
+        </div>
+
+        <h3>Select Battlefield</h3>
+        <div class="selection-row" id="map-select">
             <button onclick="selectMap('urban')">URBAN</button>
             <button onclick="selectMap('hilly')">HILLY</button>
             <button onclick="selectMap('flat')">FLATLANDS</button>
             <button onclick="selectMap('ice')">ICY RIVER</button>
         </div>
 
-        <button id="start-btn" onclick="startGame()" style="display:none; font-size: 24px; padding: 20px 50px; border: 2px solid #4caf50; color: #4caf50;">DEPLOY</button>
+        <button id="start-btn" onclick="startGame()" style="display:none; font-size: 24px; padding: 20px 50px; border: 2px solid #4caf50; color: #4caf50; margin-top: 20px;">DEPLOY</button>
     </div>
 
     <!-- Game Over Overlay -->
@@ -176,8 +213,6 @@
         const CONFIG = {
             playerSpeed: 0.45,
             playerTurnSpeed: 0.025,
-            bulletSpeed: 12.0, 
-            reloadTime: 2000,
             gravity: 0.08,
             playerHP: 800,
             enemyHP: 300,
@@ -185,7 +220,33 @@
             capRadius: 30,
             capTimeSeconds: 60,
             ticketDrainRate: 0.3,
-            tankCollisionRadius: 3.5 
+            tankCollisionRadius: 3.5,
+            
+            // Vehicles
+            // Leopard
+            leoReload: 2000,
+            leoDmg: 100,
+
+            // Gepard
+            gepardHP: 250,      
+            gepardReload: 70,   
+            gepardDmg: 35,      
+            
+            // Didgori 3
+            didgoriHP: 400, 
+            didgoriSpeed: 0.65, 
+            didgori23mmReload: 150,
+            didgori23mmDmg: 28,
+            didgori50calReload: 90,
+            didgori50calDmg: 12,
+
+            // HSTV-L
+            hstvlHP: 350, // Light tank armor
+            hstvlSpeed: 0.55, // Fast
+            hstvlReload: 500, // 0.5s auto-loader
+            hstvlDmg: 60, // APFSDS (High pen, decent dmg)
+
+            bulletSpeed: 12.0
         };
 
         // --- GLOBALS ---
@@ -202,8 +263,9 @@
         let capZones = [];
         let gameActive = false;
         let currentMapType = '';
+        let currentVehicleType = 'leo';
         
-        // Raycaster for precise hit detection
+        // Raycaster
         const raycaster = new THREE.Raycaster();
 
         let lightSource, ambientLight;
@@ -216,17 +278,23 @@
         const keys = { w: false, a: false, s: false, d: false, c: false, shift: false };
         let currentYaw = 0;
         let currentPitch = 0;
+        let mousePressed = false;
+        let rightMousePressed = false;
         
         let freeLookYaw = 0;
         let freeLookPitch = 0;
         let isSniperMode = false;
         let lastShotTime = 0;
-        
+        let last50CalTime = 0; // Separate timer for secondary weapon
+        let killHistory = []; // Track kill timestamps
+
         let crewState = {
             reloading: false,
             spotted: false,
             hitTimer: 0,
-            killTimer: 0
+            killTimer: 0,
+            streakTimer: 0,
+            streakText: ""
         };
 
         // --- COLLISION SYSTEM ---
@@ -249,8 +317,6 @@
             return false;
         }
 
-        // --- HIT DETECTION REMOVED (Replaced by Raycasting in Animate) ---
-        
         function findSafePosition(minX, maxX, minZ, maxZ) {
             let x, z;
             let attempts = 0;
@@ -552,7 +618,18 @@
             document.addEventListener('keydown', (e) => onKey(e, true));
             document.addEventListener('keyup', (e) => onKey(e, false));
             document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mousedown', shoot);
+            
+            // Mouse Listeners for shooting
+            document.addEventListener('mousedown', (e) => {
+                if (e.button === 0) mousePressed = true;
+                if (e.button === 2) rightMousePressed = true;
+            });
+            document.addEventListener('mouseup', (e) => {
+                if (e.button === 0) mousePressed = false;
+                if (e.button === 2) rightMousePressed = false;
+            });
+            document.addEventListener('contextmenu', event => event.preventDefault());
+
             document.addEventListener('click', () => { if(gameActive) document.body.requestPointerLock(); });
             clock = new THREE.Clock();
             createPlayer(); 
@@ -597,20 +674,92 @@
             group.rotation.order = 'YXZ'; 
             const hullMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7, metalness: 0.4 });
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 });
-            const hull = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.2, 6.0), hullMat);
-            hull.position.y = 0.6; hull.castShadow = true; hull.receiveShadow = true;
-            group.add(hull);
-            if (type === 'leo') {
-                const hump = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 2.5), hullMat);
-                hump.position.set(0, 1.45, -1.75); hump.castShadow = true;
-                group.add(hump);
-                const grill = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 1.5), darkMat);
-                grill.position.set(0, 1.71, -1.75);
-                group.add(grill);
+            
+            // Hull Dimensions & Logic
+            if (type === 'didgori') {
+                // ... (Didgori code) ...
+                // 1. Engine Hood (Front)
+                const hood = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.4, 1.8), hullMat);
+                hood.position.set(0, 1.4, 2.0); // Front
+                hood.castShadow = true; hood.receiveShadow = true;
+                group.add(hood);
+
+                // 2. Cabin (Center, Tall)
+                const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.9, 1.9, 2.2), hullMat);
+                cabin.position.set(0, 1.7, 0.0); // Center
+                cabin.castShadow = true; cabin.receiveShadow = true;
+                group.add(cabin);
+
+                // 3. Bed (Rear, Lower, Short)
+                const bed = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.0, 1.5), hullMat);
+                bed.position.set(0, 1.3, -1.8); // Back
+                bed.castShadow = true; bed.receiveShadow = true;
+                group.add(bed);
+                
+                // Add Wheels (6x6)
+                const wheelGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.6, 16);
+                wheelGeo.rotateZ(Math.PI/2);
+                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+                
+                const xOffset = 1.4;
+                const yOffset = 0.8;
+                const zOffsets = [2.0, 0.0, -2.0];
+                
+                zOffsets.forEach(z => {
+                    const wL = new THREE.Mesh(wheelGeo, wheelMat);
+                    wL.position.set(-xOffset, yOffset, z);
+                    group.add(wL);
+                    const wR = new THREE.Mesh(wheelGeo, wheelMat);
+                    wR.position.set(xOffset, yOffset, z);
+                    group.add(wR);
+                });
+
+            } else if (type === 'hstvl') {
+                // HSTV-L Hull (Very low wedge)
+                const hull = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.9, 5.5), hullMat);
+                hull.position.y = 0.45; hull.castShadow = true; hull.receiveShadow = true;
+                group.add(hull);
+
+                // Angled Front Plate (Visual approximation)
+                const slope = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.5, 1.5), hullMat);
+                slope.position.set(0, 0.7, 2.0);
+                slope.rotation.x = -Math.PI / 6;
+                group.add(slope);
+
+            } else {
+                // Standard Hull for Tanks (Leopard / Gepard / T90)
+                let hullDims = [3.4, 1.2, 6.0];
+                if (type === 'gepard') hullDims = [3.2, 1.2, 6.0];
+
+                const hull = new THREE.Mesh(new THREE.BoxGeometry(hullDims[0], hullDims[1], hullDims[2]), hullMat);
+                hull.position.y = hullDims[1]/2; hull.castShadow = true; hull.receiveShadow = true;
+                group.add(hull);
+
+                if (type === 'leo') {
+                    const hump = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 2.5), hullMat);
+                    hump.position.set(0, 1.45, -1.75); hump.castShadow = true;
+                    group.add(hump);
+                    const grill = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 1.5), darkMat);
+                    grill.position.set(0, 1.71, -1.75);
+                    group.add(grill);
+                }
             }
+            
+            // Turret Pivot
             const turretGroup = new THREE.Group();
-            turretGroup.position.set(0, 1.4, 0.5); 
+            
+            if (type === 'didgori') {
+                turretGroup.position.set(0, 2.7, 0.0); 
+            } else if (type === 'hstvl') {
+                turretGroup.position.set(0, 0.9, -0.5); // Very low turret ring
+            } else {
+                const hullH = type === 'gepard' ? 1.2 : 1.2;
+                turretGroup.position.set(0, hullH + 0.2, 0.5); 
+            }
+            
             group.add(turretGroup);
+
+            // Turret Shapes
             if (type === 'leo') {
                 const mainTurret = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.9, 3.0), hullMat);
                 mainTurret.castShadow = true; turretGroup.add(mainTurret);
@@ -623,27 +772,126 @@
                 cheekR.castShadow = true; turretGroup.add(cheekR);
                 const bustle = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.7, 0.8), hullMat);
                 bustle.position.set(0, 0, -2.0); turretGroup.add(bustle);
+            } else if (type === 'gepard') {
+                // Gepard Turret code...
+                const mainTurret = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.0, 2.8), hullMat);
+                mainTurret.position.y = 0.4; mainTurret.castShadow = true; turretGroup.add(mainTurret);
+                const radarStem = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5), darkMat);
+                radarStem.position.set(0, 1.1, -0.8); turretGroup.add(radarStem);
+                const radarDish = new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 4, 0, Math.PI * 2, 0, 0.5), hullMat);
+                radarDish.rotation.x = -Math.PI/3; radarDish.position.set(0, 1.4, -0.8); turretGroup.add(radarDish);
+                const gunHouseGeo = new THREE.BoxGeometry(0.6, 0.6, 1.5);
+                const gunHouseL = new THREE.Mesh(gunHouseGeo, hullMat);
+                gunHouseL.position.set(-1.4, 0.4, 0); turretGroup.add(gunHouseL);
+                const gunHouseR = new THREE.Mesh(gunHouseGeo, hullMat);
+                gunHouseR.position.set(1.4, 0.4, 0); turretGroup.add(gunHouseR);
+            } else if (type === 'didgori') {
+                // Didgori Turret code...
+                const rwsBase = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.0), hullMat);
+                turretGroup.add(rwsBase);
+                const rwsGun = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.2), hullMat);
+                rwsGun.position.set(0, 0.5, 0); turretGroup.add(rwsGun);
+                const optic = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.5), darkMat);
+                optic.position.set(0.4, 0.5, 0.4); turretGroup.add(optic);
+            } else if (type === 'hstvl') {
+                // HSTV-L Turret (Small, Cleft-like)
+                const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 0.6, 8), hullMat);
+                turretBase.position.y = 0.3; turretBase.castShadow = true;
+                turretGroup.add(turretBase);
+                
+                // Low profile top
+                const turretTop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 1.8), hullMat);
+                turretTop.position.y = 0.6;
+                turretGroup.add(turretTop);
+
+                // Commander optics
+                const optic = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.4), darkMat);
+                optic.position.set(-0.5, 0.9, -0.2);
+                turretGroup.add(optic);
             } else {
+                // T90/Enemy Turret
                 const dome = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), hullMat);
                 dome.scale.set(1, 0.5, 1); dome.castShadow = true; turretGroup.add(dome);
             }
+            
+            // Mantlet & Barrel
             const mantletPivot = new THREE.Group();
-            mantletPivot.position.set(0, 0, 1.6); turretGroup.add(mantletPivot);
-            const barrelLen = type === 'leo' ? 8 : 6;
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, barrelLen, 16), hullMat);
-            barrel.rotation.x = -Math.PI/2; barrel.position.set(0, 0, barrelLen/2); 
-            barrel.castShadow = true; mantletPivot.add(barrel);
-            group.turret = turretGroup; group.mantlet = mantletPivot;
-            const muzzle = new THREE.Object3D();
-            muzzle.position.set(0, 0, barrelLen); mantletPivot.add(muzzle);
-            group.muzzle = muzzle;
+            
+            if (type === 'gepard') {
+                mantletPivot.position.set(0, 0.4, 0); 
+                const barrelGeo = new THREE.CylinderGeometry(0.06, 0.06, 4.5, 8);
+                barrelGeo.rotateX(-Math.PI/2);
+                const barrelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+                const barrelL = new THREE.Mesh(barrelGeo, barrelMat);
+                barrelL.position.set(-1.4, 0, 1.5); mantletPivot.add(barrelL);
+                const barrelR = new THREE.Mesh(barrelGeo, barrelMat);
+                barrelR.position.set(1.4, 0, 1.5); mantletPivot.add(barrelR);
+                turretGroup.add(mantletPivot);
+                const muzzleL = new THREE.Object3D(); muzzleL.position.set(-1.4, 0, 3.8); mantletPivot.add(muzzleL);
+                const muzzleR = new THREE.Object3D(); muzzleR.position.set(1.4, 0, 3.8); mantletPivot.add(muzzleR);
+                group.muzzles = [muzzleL, muzzleR];
+            } else if (type === 'didgori') {
+                mantletPivot.position.set(0, 0.5, 0.5);
+                const barrelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
+                const ac23 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.5, 8), barrelMat);
+                ac23.rotation.x = -Math.PI/2; ac23.position.set(0.15, 0, 1.2); mantletPivot.add(ac23);
+                const m2 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.8, 8), barrelMat);
+                m2.rotation.x = -Math.PI/2; m2.position.set(-0.25, 0.1, 1.0); mantletPivot.add(m2);
+                turretGroup.add(mantletPivot);
+                const muzzle23 = new THREE.Object3D(); muzzle23.position.set(0.15, 0, 2.5); mantletPivot.add(muzzle23);
+                const muzzle50 = new THREE.Object3D(); muzzle50.position.set(-0.25, 0.1, 2.0); mantletPivot.add(muzzle50);
+                group.muzzles = [muzzle23, muzzle50];
+            } else if (type === 'hstvl') {
+                // HSTV-L Gun (75mm, long, smooth)
+                mantletPivot.position.set(0, 0.6, 0.8);
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 5.5, 12), hullMat);
+                barrel.rotation.x = -Math.PI/2; barrel.position.set(0, 0, 2.75);
+                mantletPivot.add(barrel);
+                turretGroup.add(mantletPivot);
+                const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0, 5.5); mantletPivot.add(muzzle);
+                group.muzzle = muzzle;
+            } else {
+                mantletPivot.position.set(0, 0, 1.6); 
+                const barrelLen = type === 'leo' ? 8 : 6;
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, barrelLen, 16), hullMat);
+                barrel.rotation.x = -Math.PI/2; barrel.position.set(0, 0, barrelLen/2); 
+                barrel.castShadow = true; mantletPivot.add(barrel);
+                turretGroup.add(mantletPivot);
+                const muzzle = new THREE.Object3D();
+                muzzle.position.set(0, 0, barrelLen); mantletPivot.add(muzzle);
+                group.muzzle = muzzle;
+            }
+
+            group.turret = turretGroup; 
+            group.mantlet = mantletPivot;
+            
             return group;
         }
 
         function createPlayer() {
             if(player) scene.remove(player);
-            player = createTankMesh(0x556b2f, 'leo'); 
-            player.userData = { hp: CONFIG.playerHP, maxHp: CONFIG.playerHP };
+            
+            if (currentVehicleType === 'gepard') {
+                player = createTankMesh(0x556b44, 'gepard'); 
+                player.userData = { hp: CONFIG.gepardHP, maxHp: CONFIG.gepardHP, vehicleType: 'gepard' };
+                document.getElementById('vehicle-name').innerText = "FLAKPANZER GEPARD";
+                document.getElementById('controls-hint').innerText = "[L-CLICK] DUAL AUTOCANNONS";
+            } else if (currentVehicleType === 'didgori') {
+                player = createTankMesh(0x8B7D6B, 'didgori'); // Sand/Dark Earth color
+                player.userData = { hp: CONFIG.didgoriHP, maxHp: CONFIG.didgoriHP, vehicleType: 'didgori' };
+                document.getElementById('vehicle-name').innerText = "DIDGORI 3 MRAP";
+                document.getElementById('controls-hint').innerText = "[L-CLICK] 23MM | [R-CLICK] .50 CAL";
+            } else if (currentVehicleType === 'hstvl') {
+                player = createTankMesh(0x6e7f80, 'hstvl'); // Grey-Green-ish
+                player.userData = { hp: CONFIG.hstvlHP, maxHp: CONFIG.hstvlHP, vehicleType: 'hstvl' };
+                document.getElementById('vehicle-name').innerText = "HSTV-L";
+                document.getElementById('controls-hint').innerText = "[L-CLICK] 75MM APFSDS (RAPID)";
+            } else {
+                player = createTankMesh(0x556b2f, 'leo'); 
+                player.userData = { hp: CONFIG.playerHP, maxHp: CONFIG.playerHP, vehicleType: 'leo' };
+                document.getElementById('vehicle-name').innerText = "LEOPARD 2A7V";
+                document.getElementById('controls-hint').innerText = "[L-CLICK] 120MM CANNON";
+            }
             scene.add(player);
         }
         
@@ -654,13 +902,16 @@
             ally1.userData = { hp: CONFIG.allyHP, maxHp: CONFIG.allyHP, team: 'ally', state: 'idle', nextMove: 0 };
             createNametag(ally1, "Leopard 2A6", "ally");
             scene.add(ally1); allies.push(ally1);
-            const ally2 = createTankMesh(0x4b5320, 'leo');
+            
+            const ally2 = createTankMesh(0x556b44, 'gepard'); 
             const a2Pos = findSafePosition(10, 30, 10, 30);
             ally2.position.set(a2Pos.x, getTerrainHeight(a2Pos.x, a2Pos.z), a2Pos.z);
-            ally2.userData = { hp: CONFIG.allyHP, maxHp: CONFIG.allyHP, team: 'ally', state: 'idle', nextMove: 0 };
-            createNametag(ally2, "Leopard 2 PSO", "ally");
+            ally2.userData = { hp: 300, maxHp: 300, team: 'ally', state: 'idle', nextMove: 0 };
+            createNametag(ally2, "Gepard AA", "ally");
             scene.add(ally2); allies.push(ally2);
-            for(let i=0; i<5; i++) {
+            
+            // INCREASED ENEMY COUNT TO 12
+            for(let i=0; i<12; i++) {
                 const en = createTankMesh(0x3a2a2a, 't90');
                 const pos = findSafePosition(-150, 150, -250, -150);
                 en.position.set(pos.x, getTerrainHeight(pos.x, pos.z), pos.z);
@@ -673,9 +924,20 @@
 
         function selectMap(type) {
             currentMapType = type;
-            document.querySelectorAll('.map-select-container button').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('#map-select button').forEach(b => b.classList.remove('active'));
             event.target.classList.add('active');
-            document.getElementById('start-btn').style.display = 'block';
+            checkReady();
+        }
+
+        function selectVehicle(type) {
+            currentVehicleType = type;
+            document.querySelectorAll('#vehicle-select button').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            checkReady();
+        }
+        
+        function checkReady() {
+            if(currentMapType && currentVehicleType) document.getElementById('start-btn').style.display = 'block';
         }
 
         function startGame() {
@@ -688,10 +950,14 @@
             enemies.forEach(e => scene.remove(e)); enemies = [];
             activeNametags.forEach(t => t.element.remove()); activeNametags = [];
             bullets.forEach(b => scene.remove(b)); bullets = [];
+            killHistory = []; // Reset streaks
+            
             createEnvironment(currentMapType);
             const pPos = findSafePosition(-10, 10, 70, 90);
+            createPlayer(); // Re-create with selected type
             player.position.set(pPos.x, getTerrainHeight(pPos.x, pPos.z), pPos.z);
-            player.rotation.set(0,0,0); player.userData.hp = CONFIG.playerHP;
+            player.rotation.set(0,0,0); 
+            
             spawnEntities(); updateHUD(); applyVisuals();
         }
         
@@ -704,9 +970,41 @@
         function updateCrewStatus() {
             const el = document.getElementById('crew-status');
             const now = Date.now();
+            
+            document.getElementById('ammo-status').innerHTML = "";
+
+            // PRIORITY 1: STREAK MESSAGES
+            if (now - crewState.streakTimer < 4000) {
+                el.innerText = crewState.streakText;
+                // Color coding for streaks
+                if (crewState.streakText.includes("VAPORIZING")) el.style.color = "#00ffff"; // Cyan
+                else if (crewState.streakText.includes("TRIPLE")) el.style.color = "#ff00ff"; // Magenta
+                else el.style.color = "#ffaa00"; // Orange
+                
+                el.style.fontSize = "36px";
+                el.style.textShadow = "0 0 10px " + el.style.color;
+                return;
+            } else {
+                el.style.fontSize = "24px";
+                el.style.textShadow = "2px 2px 0 #000";
+            }
+
             if (now - crewState.killTimer < 2000) { el.innerText = "TARGET DESTROYED!"; el.style.color = "#ff0000"; return; }
             if (now - crewState.hitTimer < 1500) { el.innerText = "HIT!"; el.style.color = "#ff3333"; return; }
-            if (now - lastShotTime < CONFIG.reloadTime) { el.innerText = "RELOADING..."; el.style.color = "#ffaa00"; return; }
+            
+            let reloadTime = CONFIG.leoReload;
+            if (player.userData.vehicleType === 'gepard') reloadTime = CONFIG.gepardReload;
+            if (player.userData.vehicleType === 'didgori') reloadTime = CONFIG.didgori23mmReload;
+            if (player.userData.vehicleType === 'hstvl') reloadTime = CONFIG.hstvlReload;
+            
+            if (now - lastShotTime < reloadTime) { 
+                if (player.userData.vehicleType !== 'gepard' && player.userData.vehicleType !== 'didgori' && player.userData.vehicleType !== 'hstvl') {
+                    el.innerText = "RELOADING..."; el.style.color = "#ffaa00"; 
+                } else {
+                    el.innerText = "ARMED"; el.style.color = "#4caf50";
+                }
+                return; 
+            }
             if (crewState.spotted) { el.innerText = "SPOTTED!"; el.style.color = "#ffff00"; return; }
             el.innerText = "LOADED"; el.style.color = "#4caf50";
         }
@@ -721,31 +1019,139 @@
         function shoot() {
             if (!gameActive || player.userData.hp <= 0) return;
             const now = Date.now();
-            if (now - lastShotTime < CONFIG.reloadTime) return;
+            
+            // Didgori 3 Firing Logic
+            if (player.userData.vehicleType === 'didgori') {
+                // Left Click: 23mm
+                if (mousePressed && now - lastShotTime > CONFIG.didgori23mmReload) {
+                    lastShotTime = now;
+                    // Visual recoil
+                    player.mantlet.position.z -= 0.05;
+                    setTimeout(() => player.mantlet.position.z = 0, 40);
+                    // 23mm is index 0
+                    fireBullet(player, true, 0, CONFIG.didgori23mmDmg, 0xffaa00, 0.06); 
+                }
+                
+                // Right Click: .50 Cal
+                if (rightMousePressed && now - last50CalTime > CONFIG.didgori50calReload) {
+                    last50CalTime = now;
+                    // .50 cal is index 1
+                    fireBullet(player, true, 1, CONFIG.didgori50calDmg, 0xffff00, 0.03);
+                }
+                return;
+            }
+
+            // Standard / Gepard / HSTV-L Logic (Left Click Only)
+            if (!mousePressed) return;
+
+            let reload = CONFIG.leoReload;
+            if (player.userData.vehicleType === 'gepard') reload = CONFIG.gepardReload;
+            if (player.userData.vehicleType === 'hstvl') reload = CONFIG.hstvlReload;
+
+            if (now - lastShotTime < reload) return;
             lastShotTime = now;
-            player.mantlet.position.z -= 0.4;
-            setTimeout(() => player.mantlet.position.z = 0, 200); 
-            fireBullet(player, true);
+            
+            // Recoil
+            let recoilDist = 0.4;
+            let recoilSpeed = 200;
+            if (player.userData.vehicleType === 'gepard') { recoilDist = 0.05; recoilSpeed = 30; }
+            if (player.userData.vehicleType === 'hstvl') { recoilDist = 0.2; recoilSpeed = 100; }
+
+            player.mantlet.position.z -= recoilDist;
+            setTimeout(() => player.mantlet.position.z = 0, recoilSpeed); 
+            
+            if (player.userData.vehicleType === 'gepard') {
+                fireBullet(player, true, 0); // Left
+                fireBullet(player, true, 1); // Right
+            } else if (player.userData.vehicleType === 'hstvl') {
+                // High velocity, bright tracer
+                fireBullet(player, true, -1, CONFIG.hstvlDmg, 0xffffff, 0.05); 
+            } else {
+                fireBullet(player, true);
+            }
+        }
+        
+        function recordKill() {
+            const now = Date.now();
+            crewState.killTimer = now;
+            
+            // Add kill to history
+            killHistory.push(now);
+            
+            // Filter kills strictly within last 5 seconds (5000ms)
+            killHistory = killHistory.filter(t => now - t <= 5000);
+            
+            let msg = "";
+            if (killHistory.length === 2) msg = "DOUBLE KILL!";
+            if (killHistory.length === 3) msg = "TRIPLE KILL!";
+            if (killHistory.length >= 4) msg = "VAPORIZING STREAK!";
+            
+            if (msg !== "") {
+                crewState.streakText = msg;
+                crewState.streakTimer = now;
+            }
         }
 
-        function fireBullet(shooter, isPlayer) {
-            const geo = new THREE.CylinderGeometry(0.1, 0.1, 2.0, 8);
+        function fireBullet(shooter, isPlayer, muzzleIndex = -1, overrideDmg = null, color = null, scale = null) {
+            const isGepard = shooter.userData.vehicleType === 'gepard';
+            const isDidgori = shooter.userData.vehicleType === 'didgori';
+            const isHstvl = shooter.userData.vehicleType === 'hstvl';
+            
+            let bSize = 0.1;
+            if (isGepard) bSize = 0.03;
+            if (isDidgori) bSize = scale || 0.05; 
+            if (isHstvl) bSize = 0.04; // Thin projectile (Sabot)
+
+            const geo = new THREE.CylinderGeometry(bSize, bSize, bSize*20, 4);
             geo.rotateX(-Math.PI / 2); 
-            const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            
+            let bColor = color || (isGepard ? 0xff5500 : 0xffaa00);
+            
+            const mat = new THREE.MeshBasicMaterial({ color: bColor });
             const bullet = new THREE.Mesh(geo, mat);
+            
             const startPos = new THREE.Vector3();
-            shooter.muzzle.getWorldPosition(startPos);
+            let muzzleObj = shooter.muzzle;
+            if (muzzleIndex >= 0 && shooter.muzzles) {
+                muzzleObj = shooter.muzzles[muzzleIndex];
+            }
+            
+            muzzleObj.getWorldPosition(startPos);
             bullet.position.copy(startPos);
-            const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(shooter.muzzle.getWorldQuaternion(new THREE.Quaternion()));
+            
+            const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(muzzleObj.getWorldQuaternion(new THREE.Quaternion()));
+            
+            // Spread
             if (!isPlayer) {
                 dir.x += (Math.random()-0.5)*0.08; dir.y += (Math.random()-0.5)*0.08; dir.z += (Math.random()-0.5)*0.08;
                 dir.normalize();
+            } else if (isGepard || isDidgori) {
+                 // Slight spread for autocannons
+                 dir.x += (Math.random()-0.5)*0.015; dir.y += (Math.random()-0.5)*0.015;
+                 dir.normalize();
+            } else if (isHstvl) {
+                // High accuracy (very little spread)
+                dir.x += (Math.random()-0.5)*0.002; dir.y += (Math.random()-0.5)*0.002;
+                dir.normalize();
             }
+            
             bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
-            bullet.velocity = dir.multiplyScalar(CONFIG.bulletSpeed);
-            bullet.userData = { dmg: 50, owner: isPlayer ? 'player' : 'ai' };
+            
+            // HSTV-L has very high velocity
+            let speed = CONFIG.bulletSpeed;
+            if(isHstvl) speed = 16.0;
+
+            bullet.velocity = dir.multiplyScalar(speed);
+            
+            let dmg = overrideDmg;
+            if (dmg === null) {
+                dmg = isGepard ? CONFIG.gepardDmg : CONFIG.leoDmg;
+            }
+            
+            bullet.userData = { dmg: dmg, owner: isPlayer ? 'player' : 'ai' };
             scene.add(bullet); bullets.push(bullet);
-            const flash = new THREE.PointLight(0xffaa00, 4, 20);
+            
+            const flash = new THREE.PointLight(bColor, 2, 10);
             flash.position.copy(startPos); scene.add(flash);
             setTimeout(() => scene.remove(flash), 50);
         }
@@ -774,7 +1180,23 @@
             const now = Date.now();
             const dt = clock.getDelta();
             const frameRatio = dt * 60; 
+            
+            // Player Inputs
+            if (player.userData.vehicleType === 'didgori') {
+                if (mousePressed || rightMousePressed) shoot();
+            } else {
+                if (mousePressed) shoot();
+            }
+            
             updateNametags(); updateCrewStatus();
+            
+            // --- VICTORY CHECK ---
+            // If all enemies are dead (HP <= 0), Game Over Victory
+            const activeEnemies = enemies.filter(e => e.userData.hp > 0).length;
+            if (activeEnemies === 0 && enemies.length > 0) {
+                gameOver("HOSTILES ELIMINATED", "Area secured. Good work, Commander.");
+            }
+            
             if (!keys.c) { freeLookYaw *= 0.8; freeLookPitch *= 0.8; }
             if (keys.shift && !isSniperMode) {
                 isSniperMode = true; camera.fov = 10;
@@ -788,10 +1210,12 @@
                 document.getElementById('crosshair').style.opacity = 1; camera.updateProjectionMatrix();
             }
             if (player.userData.hp > 0) {
+                const speedMult = (player.userData.vehicleType === 'didgori' ? CONFIG.didgoriSpeed : 
+                                  (player.userData.vehicleType === 'hstvl' ? CONFIG.hstvlSpeed : CONFIG.playerSpeed));
                 const oldPos = player.position.clone();
                 let moved = false;
-                if (keys.w) { player.translateZ(CONFIG.playerSpeed); moved = true; }
-                if (keys.s) { player.translateZ(-CONFIG.playerSpeed); moved = true; }
+                if (keys.w) { player.translateZ(speedMult); moved = true; }
+                if (keys.s) { player.translateZ(-speedMult); moved = true; }
                 if (keys.a) player.rotation.y += CONFIG.playerTurnSpeed;
                 if (keys.d) player.rotation.y -= CONFIG.playerTurnSpeed;
                 if (moved && checkCollision(player.position.x, player.position.z)) { player.position.copy(oldPos); }
@@ -802,6 +1226,8 @@
                     const hFront = getTerrainHeight(player.position.x + dx * tankLen, player.position.z + dz * tankLen);
                     const hBack = getTerrainHeight(player.position.x - dx * tankLen, player.position.z - dz * tankLen);
                     player.rotation.x = Math.atan2(hFront - hBack, tankLen * 2); 
+                    
+                    if (player.userData.vehicleType === 'didgori') player.position.y += 0.8; 
                 }
                 if (document.pointerLockElement === document.body) {
                     player.turret.rotation.y = -currentYaw - player.rotation.y;
@@ -810,17 +1236,42 @@
             }
             const turretWorldQuat = new THREE.Quaternion();
             player.turret.getWorldQuaternion(turretWorldQuat);
-            if(!isSniperMode) {
-                const aimDist = 500; const muzzlePos = new THREE.Vector3();
-                player.muzzle.getWorldPosition(muzzlePos);
-                const aimDir = new THREE.Vector3(0,0,1).applyQuaternion(player.muzzle.getWorldQuaternion(new THREE.Quaternion()));
-                const aimPoint = muzzlePos.clone().add(aimDir.multiplyScalar(aimDist)).project(camera);
-                const ch = document.getElementById('crosshair');
-                if(aimPoint.z < 1) {
-                    ch.style.left = (aimPoint.x * .5 + .5) * window.innerWidth + 'px';
-                    ch.style.top = (-(aimPoint.y * .5) + .5) * window.innerHeight + 'px';
-                }
+            
+            // Gun Marker Logic (Calculates where the barrel is actually pointing)
+            if (!isSniperMode) {
+                 const gunReticle = document.getElementById('gun-reticle');
+                 gunReticle.style.display = 'block';
+                 
+                 // Raycast from muzzle forward
+                 const muzzleObj = player.muzzle || (player.muzzles ? player.muzzles[0] : player.mantlet);
+                 const muzzlePos = new THREE.Vector3();
+                 muzzleObj.getWorldPosition(muzzlePos);
+                 const muzzleDir = new THREE.Vector3(0,0,1).applyQuaternion(muzzleObj.getWorldQuaternion(new THREE.Quaternion()));
+                 
+                 raycaster.set(muzzlePos, muzzleDir);
+                 raycaster.far = 1000;
+                 const targets = [terrainMesh, ...enemies, ...allies];
+                 const hits = raycaster.intersectObjects(targets, true);
+                 
+                 let hitPoint;
+                 if(hits.length > 0) hitPoint = hits[0].point;
+                 else hitPoint = muzzlePos.clone().add(muzzleDir.multiplyScalar(1000));
+                 
+                 // Project to screen
+                 const screenPos = hitPoint.clone().project(camera);
+                 
+                 if(screenPos.z < 1) {
+                     gunReticle.style.left = (screenPos.x * .5 + .5) * window.innerWidth + 'px';
+                     gunReticle.style.top = (-(screenPos.y * .5) + .5) * window.innerHeight + 'px';
+                     gunReticle.style.opacity = 1;
+                 } else {
+                     gunReticle.style.opacity = 0;
+                 }
+            } else {
+                document.getElementById('gun-reticle').style.display = 'none';
             }
+
+            // Crosshair Logic (Camera)
             if (isSniperMode) {
                 const sightOffset = new THREE.Vector3(0, 0.5, 2.0).applyQuaternion(player.mantlet.getWorldQuaternion(new THREE.Quaternion())).add(player.mantlet.getWorldPosition(new THREE.Vector3()));
                 camera.position.copy(sightOffset);
@@ -873,58 +1324,41 @@
             if (tickets.ally <= 0) gameOver("DEFEAT", "Our reinforcements are depleted.");
             if (tickets.enemy <= 0) gameOver("VICTORY", "Enemy forces are retreating.");
 
-            // UPDATED BULLET LOOP WITH RAYCASTING
+            // BULLET LOOP
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 const prevPos = b.position.clone();
                 b.position.add(b.velocity);
                 
-                // Remove if underground or too far
                 if (b.position.y < getTerrainHeight(b.position.x, b.position.z) || b.position.distanceTo(player.position) > 600) {
                     scene.remove(b); bullets.splice(i, 1); continue;
                 }
 
-                // Raycast Setup
                 const travelVec = b.velocity.clone();
                 const travelDist = travelVec.length(); 
-                // Direction must be normalized for raycaster
                 raycaster.set(prevPos, travelVec.normalize());
-                // Limit ray length to how far bullet traveled this frame (prevents shooting through walls infinitely)
                 raycaster.far = travelDist;
 
-                // Determine targets based on who shot
-                // AI cannot hit other AI (prevents friendly fire among enemies)
                 const targets = b.userData.owner === 'player' ? enemies : [...allies, player];
-                
-                // Recursive true checks all children meshes (hull, turret parts, barrel)
                 const intersects = raycaster.intersectObjects(targets, true);
 
                 if (intersects.length > 0) {
-                    // Get the closest hit
                     const hitInfo = intersects[0];
-                    const hitObject = hitInfo.object;
-
-                    // Traverse up to find the main tank Group (which holds the HP)
-                    let tank = hitObject;
+                    let tank = hitInfo.object;
                     while(tank.parent && tank.parent.type !== 'Scene') {
                         if (tank.userData && tank.userData.hp !== undefined) break; 
                         tank = tank.parent;
                     }
 
-                    // Validate Hit
                     if (tank && tank.userData.hp > 0) {
-                        // Avoid self-hit (edge case if bullet spawns inside)
-                        // But owner logic usually prevents this via target lists
-                        
                         tank.userData.hp -= b.userData.dmg;
-                        
-                        // Spawn particles exactly where ray hit the mesh
-                        spawnParticles(hitInfo.point, 0xffaa00, 12);
+                        spawnParticles(hitInfo.point, 0xffaa00, 5);
                         
                         if (b.userData.owner === 'player') {
                             crewState.hitTimer = Date.now();
                             if (tank.userData.hp <= 0) {
-                                crewState.killTimer = Date.now();
+                                // Call Kill Logic
+                                recordKill();
                                 spawnParticles(tank.position, 0x222222, 50);
                                 tank.visible = false;
                                 if (tank.userData.team === 'enemy') tickets.enemy -= 50;
@@ -934,10 +1368,7 @@
                             updateHUD();
                             if (player.userData.hp <= 0) gameOver("MIA", "Vehicle Destroyed.");
                         }
-                        
-                        // Destroy bullet
-                        scene.remove(b);
-                        bullets.splice(i, 1);
+                        scene.remove(b); bullets.splice(i, 1);
                     }
                 }
             }
@@ -950,7 +1381,8 @@
         }
 
         function updateHUD() {
-            const pct = Math.max(0, (player.userData.hp / CONFIG.playerHP) * 100);
+            const max = player.userData.maxHp || CONFIG.playerHP;
+            const pct = Math.max(0, (player.userData.hp / max) * 100);
             document.getElementById('hp-bar').style.width = pct + '%';
             document.getElementById('hp-bar').style.backgroundColor = pct < 30 ? '#ff0000' : '#4caf50';
         }
@@ -960,8 +1392,21 @@
         function onMouseMove(e) {
             if (document.pointerLockElement === document.body) {
                 const sens = isSniperMode ? 0.0004 : 0.002;
-                if (keys.c) { freeLookYaw += e.movementX * sens; freeLookPitch += e.movementY * sens; freeLookPitch = Math.max(-1.0, Math.min(1.0, freeLookPitch)); }
-                else { currentYaw += e.movementX * sens; currentPitch += e.movementY * sens; currentPitch = Math.max(-0.4, Math.min(0.2, currentPitch)); }
+                if (keys.c) {
+                    // Standard Look Controls: Mouse Up (neg movementY) should ADD to Pitch to look UP
+                    // Note: In Three.js, positive rotation on X axis tilts the camera UP.
+                    // movementY is negative when moving mouse up.
+                    // So we subtract movementY.
+                    freeLookYaw -= e.movementX * sens;
+                    freeLookPitch += e.movementY * sens; 
+                    freeLookPitch = Math.max(-1.0, Math.min(1.0, freeLookPitch));
+                } else {
+                    // Standard Turret Controls: Mouse Up = Pitch Up
+                    currentYaw += e.movementX * sens;
+                    currentPitch += e.movementY * sens;
+                    // Clamp pitch (Elevation/Depression)
+                    currentPitch = Math.max(-0.4, Math.min(0.2, currentPitch));
+                }
             }
         }
         init();
